@@ -28,7 +28,7 @@ import org.apache.http.HttpEntity;
 import org.apache.http.HttpResponse;
 import org.apache.http.client.HttpClient;
 import org.apache.http.client.methods.HttpGet;
-import org.apache.http.impl.client.DefaultHttpClient;
+import org.apache.http.impl.client.HttpClients;
 import org.apache.http.util.EntityUtils;
 import org.json.simple.JSONArray;
 import org.json.simple.JSONObject;
@@ -42,7 +42,7 @@ public class KineticCoreSystemUserHelper {
     private final String password;
     private final String serverLocation;
     private final Pattern attributePattern;
-    
+
     public KineticCoreSystemUserHelper(String username, String password, String serverLocation) {
         this.username = username;
         this.password = password;
@@ -53,14 +53,14 @@ public class KineticCoreSystemUserHelper {
     public static final List<String> DETAIL_FIELDS = Arrays.asList(new String[] {
         "createdAt","createdBy","updatedAt","updatedBy"
     });
-    
+
     public Count count(BridgeRequest request) throws BridgeError {
         JSONArray users = searchUsers(request);
-        
+
         // Create count object
         return new Count(users.size());
     }
-    
+
     public Record retrieve(BridgeRequest request) throws BridgeError {
         JSONArray users = searchUsers(request);
 
@@ -74,12 +74,12 @@ public class KineticCoreSystemUserHelper {
         }
         return record;
     }
-    
+
     public RecordList search(BridgeRequest request) throws BridgeError {
         JSONArray users = searchUsers(request);
-        
+
         List<Record> records = createRecordsFromUsers(request.getFields(), users);
-        
+
         // Sort the records because they are always returned on one page
         if (request.getMetadata("order") == null) {
             // name,type,desc assumes name ASC,type ASC,desc ASC
@@ -104,15 +104,15 @@ public class KineticCoreSystemUserHelper {
           }
           records = sortRecords(orderParse, records);
         }
-        
+
         // Return the response
         return new RecordList(request.getFields(), records);
     }
-    
+
     /*---------------------------------------------------------------------------------------------
      * HELPER METHODS
      *-------------------------------------------------------------------------------------------*/
-    
+
     private HttpGet addAuthenticationHeader(HttpGet get, String username, String password) {
         String creds = username + ":" + password;
         byte[] basicAuthBytes = Base64.encodeBase64(creds.getBytes());
@@ -121,7 +121,7 @@ public class KineticCoreSystemUserHelper {
         return get;
     }
 
-    // A helper method used to call createRecordsFromUsers but with a 
+    // A helper method used to call createRecordsFromUsers but with a
     // single record instead of an array
     private Record createRecordFromUser(List<String> fields, JSONObject user) throws BridgeError {
         JSONArray jsonArray = new JSONArray();
@@ -153,7 +153,7 @@ public class KineticCoreSystemUserHelper {
     // Filter users was made protected for the purposes of testing
     private JSONArray searchUsers(BridgeRequest request) throws BridgeError {
         // Initializing the Http Objects
-        HttpClient client = new DefaultHttpClient();
+        HttpClient client = HttpClients.createDefault();
         HttpResponse response;
 
         // Retrieve and remove the provided space from the query. Throw an error if one wasn't provided.
@@ -165,11 +165,11 @@ public class KineticCoreSystemUserHelper {
             request.setQuery(request.getQuery().replaceFirst("space=.*?(\\z|&)",""));
             if (request.getQuery().isEmpty()) request.setQuery("username=%");
         }
-        if (space == null) throw new BridgeError("Invalid query: A 'space' must be provided in the query in the form of space=spaceName.");  
-        
+        if (space == null) throw new BridgeError("Invalid query: A 'space' must be provided in the query in the form of space=spaceName.");
+
         // Based on the passed fields figure out if an ?include needs to be in the Url
         List<String> includes = new ArrayList<String>();
-        
+
         // Go through the query and see if there are any references to attributes/profileAttributes/memberships
         if (request.getQuery().contains("profileAttributes")) includes.add("profileAttributes");
         if (request.getQuery().contains("attributes")) includes.add("attributes");
@@ -180,7 +180,7 @@ public class KineticCoreSystemUserHelper {
                 break;
             }
         }
-        
+
         if (request.getFields() != null) {
             for (String field : request.getFields()) {
                 Matcher m = attributePattern.matcher(field);
@@ -200,35 +200,35 @@ public class KineticCoreSystemUserHelper {
             // If request.getFields() has a field in common with the detail fields list, include details
             if (!Collections.disjoint(DETAIL_FIELDS, request.getFields())) includes.add("details");
         }
-        
+
         String url = this.serverLocation+"/app/api/v1/spaces/"+space+"/users";
         if (!includes.isEmpty()) url += "?include="+StringUtils.join(includes,",");
         HttpGet get = new HttpGet(url);
         get = addAuthenticationHeader(get, this.username, this.password);
-        
+
         String output = "";
         try {
             response = client.execute(get);
-            
+
             HttpEntity entity = response.getEntity();
             output = EntityUtils.toString(entity);
             logger.trace("Request response code: " + response.getStatusLine().getStatusCode());
         }
         catch (IOException e) {
             logger.error(e.getMessage());
-            throw new BridgeError("Unable to make a connection to the Kinetic Core server."); 
+            throw new BridgeError("Unable to make a connection to the Kinetic Core server.");
         }
-        
+
         logger.trace("Starting to parse the JSON Response");
         JSONObject json = (JSONObject)JSONValue.parse(output);
-        
+
         if (response.getStatusLine().getStatusCode() != 200) {
             throw new BridgeError("Bridge Error: " + json.toJSONString());
         }
 
         JSONArray users;
         users = (JSONArray)json.get("users");
-        
+
         String query = request.getQuery();
         if (!query.isEmpty()) {
             users = filterUsers(users, request.getQuery());
@@ -247,7 +247,7 @@ public class KineticCoreSystemUserHelper {
         if (!value.isEmpty() && value.substring(value.length() - 1).equals("%")) regex += ".*?";
         return Pattern.compile("^"+regex+"$",Pattern.CASE_INSENSITIVE);
     }
-    
+
     private List getAttributeValues(String type, String name, JSONObject user) throws BridgeError {
         if (!user.containsKey(type)) throw new BridgeError(String.format("The field '%s' cannot be found on the User object",type));
         JSONArray attributes = (JSONArray)user.get(type);
@@ -259,10 +259,10 @@ public class KineticCoreSystemUserHelper {
         }
         return new ArrayList(); // Return an empty list if no values were found
     }
-    
+
     protected final JSONArray filterUsers(JSONArray users, String query) throws BridgeError {
         String[] queryParts = query.split("&");
-        
+
         Map<String[],Object[]> queryMatchers = new HashMap<String[],Object[]>();
         // Variables used for OR query (pattern and fields)
         String pattern = null;
@@ -273,14 +273,14 @@ public class KineticCoreSystemUserHelper {
             String[] split = part.split("=");
             String field = split[0].trim();
             String value = split.length > 1 ? split[1].trim() : "";
-            
+
             Object[] matchers;
             if (field.equals("pattern")) {
                 pattern = value;
             } else if (field.equals("fields")) {
                 fields = value.split(",");
             } else {
-                // If the field isn't 'pattern' or 'fields', add the field and appropriate values 
+                // If the field isn't 'pattern' or 'fields', add the field and appropriate values
                 // to the query matcher
                 if (value.equals("true") || value.equals("false")) {
                     matchers = new Object[] { getPatternFromValue(value), Boolean.valueOf(value) };
@@ -294,12 +294,12 @@ public class KineticCoreSystemUserHelper {
                 queryMatchers.put(new String[] { field }, matchers);
             }
         }
-        
+
         // If both query and pattern are not equal to null, add the list of fields and the
         // pattern (compiled into a regex Pattern object) to the queryMatchers map
         if (pattern != null && fields != null) {
             queryMatchers.put(fields,new Object[] { Pattern.compile(".*"+Pattern.quote(pattern)+".*",Pattern.CASE_INSENSITIVE) });
-        } 
+        }
         // If both pattern & fields are not equals to null AND both pattern & fields are not
         // both null, that means that one is null and the other is not which is not an
         // allowed query.
@@ -307,10 +307,10 @@ public class KineticCoreSystemUserHelper {
             throw new BridgeError("The 'pattern' and 'fields' parameter must be provided together.  When the 'pattern' parameter "+
                     "is provided the 'fields' parameter is required and when the 'fields' parameter is provided the 'pattern' parameter is required.");
         }
-        
+
         // Start with a full list of users and then delete from the list when they don't match
         // a qualification. Will be left with a list of values that match all qualifications.
-        JSONArray matchedUsers = users;        
+        JSONArray matchedUsers = users;
         for (Map.Entry<String[],Object[]> entry : queryMatchers.entrySet()) {
             JSONArray matchedUsersEntry = new JSONArray();
             for (String field : entry.getKey()) {
@@ -350,7 +350,7 @@ public class KineticCoreSystemUserHelper {
                                            value.getClass() == Pattern.class && ((Pattern)value).matcher(fieldValue.toString()).matches() || // fieldValue != null && Pattern matches
                                            value.equals(fieldValue) // fieldValue != null && values equal
                                        )
-                                    ) { 
+                                    ) {
                                         matchedUsersEntry.add(o);
                                     }
                                 }
@@ -361,10 +361,10 @@ public class KineticCoreSystemUserHelper {
             }
             matchedUsers = (JSONArray)matchedUsersEntry;
         }
-        
+
         return matchedUsers;
     }
-    
+
     protected List<Record> sortRecords(final Map<String,String> fieldParser, List<Record> records) throws BridgeError {
         Collections.sort(records, new Comparator<Record>() {
             @Override

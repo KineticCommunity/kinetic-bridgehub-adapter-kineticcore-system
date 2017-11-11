@@ -27,7 +27,7 @@ import org.apache.http.HttpEntity;
 import org.apache.http.HttpResponse;
 import org.apache.http.client.HttpClient;
 import org.apache.http.client.methods.HttpGet;
-import org.apache.http.impl.client.DefaultHttpClient;
+import org.apache.http.impl.client.HttpClients;
 import org.apache.http.util.EntityUtils;
 import org.json.simple.JSONArray;
 import org.json.simple.JSONObject;
@@ -41,27 +41,27 @@ public class KineticCoreSystemSpaceHelper {
     private final String password;
     private final String serverLocation;
     private final Pattern attributePattern;
-    
+
     public KineticCoreSystemSpaceHelper(String username, String password, String serverLocation) {
         this.username = username;
         this.password = password;
         this.serverLocation = serverLocation;
         this.attributePattern = Pattern.compile("(.*?)\\[(.*?)\\]");
     }
-    
+
     public static final List<String> DETAIL_FIELDS = Arrays.asList(new String[] {
         "afterLogoutPath","bundlePath","createdAt","createdBy","displayType","displayValue",
         "loginPage","resetPasswordPage","sessionInactiveLimitInSeconds","sharedBundleBase",
         "updatedAt","updatedBy"
     });
-    
+
     public Count count(BridgeRequest request) throws BridgeError {
         JSONArray spaces = searchSpaces(request);
-        
+
         // Create count object
         return new Count(spaces.size());
     }
-    
+
     public Record retrieve(BridgeRequest request) throws BridgeError {
         JSONArray spaces = searchSpaces(request);
 
@@ -75,12 +75,12 @@ public class KineticCoreSystemSpaceHelper {
         }
         return record;
     }
-    
+
     public RecordList search(BridgeRequest request) throws BridgeError {
         JSONArray spaces = searchSpaces(request);
-        
+
         List<Record> records = createRecordsFromSpaces(request.getFields(),spaces);
-        
+
         // Sort the records because they are always returned on one page
         if (request.getMetadata("order") == null) {
             // name,type,desc assumes name ASC,type ASC,desc ASC
@@ -105,15 +105,15 @@ public class KineticCoreSystemSpaceHelper {
           }
           records = sortRecords(orderParse, records);
         }
-        
+
         // Return the response
         return new RecordList(request.getFields(), records);
     }
-    
+
     /*---------------------------------------------------------------------------------------------
      * HELPER METHODS
      *-------------------------------------------------------------------------------------------*/
-    
+
     private HttpGet addAuthenticationHeader(HttpGet get, String username, String password) {
         String creds = username + ":" + password;
         byte[] basicAuthBytes = Base64.encodeBase64(creds.getBytes());
@@ -122,7 +122,7 @@ public class KineticCoreSystemSpaceHelper {
         return get;
     }
 
-    // A helper method used to call createRecordsFromSpaces but with a 
+    // A helper method used to call createRecordsFromSpaces but with a
     // single record instead of an array
     private Record createRecordFromSpace(List<String> fields, JSONObject space) throws BridgeError {
         JSONArray jsonArray = new JSONArray();
@@ -154,52 +154,52 @@ public class KineticCoreSystemSpaceHelper {
     // Filter users was made protected for the purposes of testing
     private JSONArray searchSpaces(BridgeRequest request) throws BridgeError {
         // Initializing the Http Objects
-        HttpClient client = new DefaultHttpClient();
+        HttpClient client = HttpClients.createDefault();
         HttpResponse response;
-        
+
         // Based on the passed fields figure out if an ?include needs to be in the Url
         List<String> includes = new ArrayList<String>();
-        
+
         for (String detailField : DETAIL_FIELDS) {
             if (request.getQuery().contains(detailField)) {
                 includes.add("details");
                 break;
             }
         }
-        
+
         if (request.getFields() != null) {
             // If request.getFields() has a field in common with the detail fields list, include details
             if (!Collections.disjoint(DETAIL_FIELDS, request.getFields())) includes.add("details");
         }
-        
+
         String url = this.serverLocation+"/app/api/v1/spaces";
         if (!includes.isEmpty()) url += "?include="+StringUtils.join(includes,",");
         HttpGet get = new HttpGet(url);
         get = addAuthenticationHeader(get, this.username, this.password);
-        
+
         String output = "";
         try {
             response = client.execute(get);
-            
+
             HttpEntity entity = response.getEntity();
             output = EntityUtils.toString(entity);
             logger.trace("Request response code: " + response.getStatusLine().getStatusCode());
         }
         catch (IOException e) {
             logger.error(e.getMessage());
-            throw new BridgeError("Unable to make a connection to the Kinetic Core server."); 
+            throw new BridgeError("Unable to make a connection to the Kinetic Core server.");
         }
-        
+
         logger.trace("Starting to parse the JSON Response");
         JSONObject json = (JSONObject)JSONValue.parse(output);
-        
+
         if (response.getStatusLine().getStatusCode() != 200) {
             throw new BridgeError("Bridge Error: " + json.toJSONString());
         }
 
         JSONArray spaces;
         spaces = (JSONArray)json.get("spaces");
-        
+
         String query = request.getQuery();
         if (!query.isEmpty()) {
             spaces = filterSpaces(spaces, request.getQuery());
@@ -218,7 +218,7 @@ public class KineticCoreSystemSpaceHelper {
         if (!value.isEmpty() && value.substring(value.length() - 1).equals("%")) regex += ".*?";
         return Pattern.compile("^"+regex+"$",Pattern.CASE_INSENSITIVE);
     }
-    
+
     private List getAttributeValues(String type, String name, JSONObject user) throws BridgeError {
         if (!user.containsKey(type)) throw new BridgeError(String.format("The field '%s' cannot be found on the Space object",type));
         JSONArray attributes = (JSONArray)user.get(type);
@@ -230,10 +230,10 @@ public class KineticCoreSystemSpaceHelper {
         }
         return new ArrayList(); // Return an empty list if no values were found
     }
-    
+
     protected final JSONArray filterSpaces(JSONArray users, String query) throws BridgeError {
         String[] queryParts = query.split("&");
-        
+
         Map<String[],Object[]> queryMatchers = new HashMap<String[],Object[]>();
         // Variables used for OR query (pattern and fields)
         String pattern = null;
@@ -244,14 +244,14 @@ public class KineticCoreSystemSpaceHelper {
             String[] split = part.split("=");
             String field = split[0].trim();
             String value = split.length > 1 ? split[1].trim() : "";
-            
+
             Object[] matchers;
             if (field.equals("pattern")) {
                 pattern = value;
             } else if (field.equals("fields")) {
                 fields = value.split(",");
             } else {
-                // If the field isn't 'pattern' or 'fields', add the field and appropriate values 
+                // If the field isn't 'pattern' or 'fields', add the field and appropriate values
                 // to the query matcher
                 if (value.equals("true") || value.equals("false")) {
                     matchers = new Object[] { getPatternFromValue(value), Boolean.valueOf(value) };
@@ -269,7 +269,7 @@ public class KineticCoreSystemSpaceHelper {
         // pattern (compiled into a regex Pattern object) to the queryMatchers map
         if (pattern != null && fields != null) {
             queryMatchers.put(fields,new Object[] { Pattern.compile(".*"+Pattern.quote(pattern)+".*",Pattern.CASE_INSENSITIVE) });
-        } 
+        }
         // If both pattern & fields are not equals to null AND both pattern & fields are not
         // both null, that means that one is null and the other is not which is not an
         // allowed query.
@@ -277,7 +277,7 @@ public class KineticCoreSystemSpaceHelper {
             throw new BridgeError("The 'pattern' and 'fields' parameter must be provided together.  When the 'pattern' parameter "+
                     "is provided the 'fields' parameter is required and when the 'fields' parameter is provided the 'pattern' parameter is required.");
         }
-        
+
         // Start with a full list of users and then delete from the list when they don't match
         // a qualification. Will be left with a list of values that match all qualifications.
         JSONArray matchedSpaces = users;
@@ -314,7 +314,7 @@ public class KineticCoreSystemSpaceHelper {
                                            value.getClass() == Pattern.class && ((Pattern)value).matcher(fieldValue.toString()).matches() || // fieldValue != null && Pattern matches
                                            value.equals(fieldValue) // fieldValue != null && values equal
                                        )
-                                    ) { 
+                                    ) {
                                         matchedSpacesEntry.add(o);
                                     }
                                 }
@@ -325,10 +325,10 @@ public class KineticCoreSystemSpaceHelper {
             }
             matchedSpaces = (JSONArray)matchedSpacesEntry;
         }
-        
+
         return matchedSpaces;
     }
-    
+
     protected List<Record> sortRecords(final Map<String,String> fieldParser, List<Record> records) throws BridgeError {
         Collections.sort(records, new Comparator<Record>() {
             @Override

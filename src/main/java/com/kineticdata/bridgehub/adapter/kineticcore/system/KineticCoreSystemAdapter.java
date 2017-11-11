@@ -15,8 +15,9 @@ import java.util.Map;
 import org.apache.commons.codec.binary.Base64;
 import org.apache.http.HttpEntity;
 import org.apache.http.HttpResponse;
+import org.apache.http.client.HttpClient;
 import org.apache.http.client.methods.HttpGet;
-import org.apache.http.impl.client.DefaultHttpClient;
+import org.apache.http.impl.client.HttpClients;
 import org.apache.http.util.EntityUtils;
 import org.slf4j.LoggerFactory;
 
@@ -27,10 +28,10 @@ public class KineticCoreSystemAdapter implements BridgeAdapter {
     /*----------------------------------------------------------------------------------------------
      * PROPERTIES
      *--------------------------------------------------------------------------------------------*/
-    
+
     /** Defines the adapter display name. */
     public static final String NAME = "Kinetic Core System Bridge";
-    
+
     /** Defines the logger */
     protected static final org.slf4j.Logger logger = LoggerFactory.getLogger(KineticCoreSystemAdapter.class);
 
@@ -47,7 +48,7 @@ public class KineticCoreSystemAdapter implements BridgeAdapter {
             VERSION = "Unknown";
         }
     }
-    
+
     /** Defines the collection of property names for the adapter. */
     public static class Properties {
         public static final String USERNAME = "Username";
@@ -60,7 +61,7 @@ public class KineticCoreSystemAdapter implements BridgeAdapter {
 
     private KineticCoreSystemSpaceHelper spaceHelper;
     private KineticCoreSystemUserHelper userHelper;
-    
+
     private final ConfigurablePropertyMap properties = new ConfigurablePropertyMap(
             new ConfigurableProperty(Properties.USERNAME).setIsRequired(true),
             new ConfigurableProperty(Properties.PASSWORD).setIsRequired(true).setIsSensitive(true)
@@ -75,7 +76,7 @@ public class KineticCoreSystemAdapter implements BridgeAdapter {
     public static final List<String> VALID_STRUCTURES = Arrays.asList(new String[] {
         "Users","Spaces"
     });
-    
+
     /*---------------------------------------------------------------------------------------------
      * SETUP METHODS
      *-------------------------------------------------------------------------------------------*/
@@ -83,22 +84,22 @@ public class KineticCoreSystemAdapter implements BridgeAdapter {
     public String getName() {
         return NAME;
     }
-    
+
     @Override
     public String getVersion() {
        return VERSION;
     }
-    
+
     @Override
     public ConfigurablePropertyMap getProperties() {
         return properties;
     }
-    
+
     @Override
     public void setProperties(Map<String,String> parameters) {
         properties.setValues(parameters);
     }
-     
+
     @Override
     public void initialize() throws BridgeError {
         this.username = properties.getValue(Properties.USERNAME);
@@ -107,24 +108,24 @@ public class KineticCoreSystemAdapter implements BridgeAdapter {
 
         this.userHelper = new KineticCoreSystemUserHelper(this.username, this.password, this.serverLocation);
         this.spaceHelper = new KineticCoreSystemSpaceHelper(this.username, this.password, this.serverLocation);
-        
+
         // Testing the configuration values to make sure that they
         // correctly authenticate with Core
         testAuth();
     }
-    
+
     /*---------------------------------------------------------------------------------------------
      * IMPLEMENTATION METHODS
      *-------------------------------------------------------------------------------------------*/
-    
+
     @Override
     public Count count(BridgeRequest request) throws BridgeError {
         request.setQuery(substituteQueryParameters(request));
-        
+
         if (!VALID_STRUCTURES.contains(request.getStructure())) {
             throw new BridgeError("Invalid Structure: '" + request.getStructure() + "' is not a valid structure");
         }
-        
+
         Count count;
         if (request.getStructure().equals("Spaces")) {
             count = this.spaceHelper.count(request);
@@ -133,10 +134,10 @@ public class KineticCoreSystemAdapter implements BridgeAdapter {
         } else {
             throw new BridgeError("The structure '"+request.getStructure()+"' does not have a count method defined");
         }
-        
+
         return count;
     }
-    
+
     @Override
     public Record retrieve(BridgeRequest request) throws BridgeError {
         request.setQuery(substituteQueryParameters(request));
@@ -144,11 +145,11 @@ public class KineticCoreSystemAdapter implements BridgeAdapter {
         if (!VALID_STRUCTURES.contains(request.getStructure())) {
             throw new BridgeError("Invalid Structure: '" + request.getStructure() + "' is not a valid structure");
         }
-        
+
         if (request.getFields() == null || request.getFields().isEmpty()) {
             throw new BridgeError("Invalid Request: No fields were included in the request.");
         }
-        
+
         Record record;
         if (request.getStructure().equals("Spaces")) {
             record = this.spaceHelper.retrieve(request);
@@ -168,7 +169,7 @@ public class KineticCoreSystemAdapter implements BridgeAdapter {
         if (!VALID_STRUCTURES.contains(request.getStructure())) {
             throw new BridgeError("Invalid Structure: '" + request.getStructure() + "' is not a valid structure");
         }
-        
+
          if (request.getFields() == null || request.getFields().isEmpty()) {
             throw new BridgeError("Invalid Request: No fields were included in the request.");
         }
@@ -181,25 +182,25 @@ public class KineticCoreSystemAdapter implements BridgeAdapter {
         } else {
             throw new BridgeError("The structure '"+request.getStructure()+"' does not have a search method defined");
         }
-        
+
         return recordList;
     }
-    
+
     /*---------------------------------------------------------------------------------------------
      * HELPER METHODS
      *-------------------------------------------------------------------------------------------*/
-    
+
     private String substituteQueryParameters(BridgeRequest request) throws BridgeError {
         KineticCoreSystemQualificationParser parser = new KineticCoreSystemQualificationParser();
         return parser.parse(request.getQuery(),request.getParameters());
     }
-    
+
     private void testAuth() throws BridgeError {
         logger.debug("Testing the authentication credentials");
         HttpGet get = new HttpGet(serverLocation + "/app/api/v1/spaces");
         get = addAuthenticationHeader(get, this.username, this.password);
-        
-        DefaultHttpClient client = new DefaultHttpClient();
+
+        HttpClient client = HttpClients.createDefault();
         HttpResponse response;
         try {
             response = client.execute(get);
@@ -213,7 +214,7 @@ public class KineticCoreSystemAdapter implements BridgeAdapter {
         }
         catch (IOException e) {
             logger.error(e.getMessage());
-            throw new BridgeError("Unable to make a connection to properly to Kinetic Core."); 
+            throw new BridgeError("Unable to make a connection to properly to Kinetic Core.");
         }
     }
 
